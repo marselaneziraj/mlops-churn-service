@@ -1,0 +1,3 @@
+# DVC reads stage parameters from configs/config.yaml (see dvc.yaml).
+# This file exists only so `dvc params diff` has a default to fall back on.
+placeholder: true

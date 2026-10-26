@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Train pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "churn.models.train",
+      "args": [
+        "--config",
+        "configs/config.yaml"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "FastAPI (uvicorn)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "churn.api.main:app",
+        "--reload",
+        "--port",
+        "8080"
+      ],
+      "console": "integratedTerminal",
+      "jinja": false
+    },
+    {
+      "name": "Make dataset",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "churn.data.make_dataset",
+      "args": [
+        "--config",
+        "configs/config.yaml"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Pytest: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}",
+        "-vv"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

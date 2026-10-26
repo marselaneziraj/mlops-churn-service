@@ -1,0 +1,66 @@
+stages:
+  ingest:
+    cmd: python -m churn.data.make_dataset --config configs/config.yaml
+    deps:
+      - src/churn/data/make_dataset.py
+    params:
+      - configs/config.yaml:
+          - data
+          - seed
+    outs:
+      - data/raw/telco_churn.csv
+
+  audit:
+    cmd: python -m churn.data.leakage_audit --config configs/config.yaml
+    deps:
+      - src/churn/data/leakage_audit.py
+      - data/raw/telco_churn.csv
+    params:
+      - configs/config.yaml:
+          - features
+          - data
+    outs:
+      - reports/leakage_audit.json:
+          cache: false
+
+  eda:
+    cmd: python -m churn.data.eda --config configs/config.yaml
+    deps:
+      - src/churn/data/eda.py
+      - data/raw/telco_churn.csv
+    outs:
+      - docs/figures/eda_target_balance.png:
+          cache: false
+      - docs/figures/eda_numeric_distributions.png:
+          cache: false
+      - docs/figures/eda_churn_by_category.png:
+          cache: false
+
+  train:
+    cmd: python -m churn.models.train --config configs/config.yaml
+    deps:
+      - src/churn/models/train.py
+      - src/churn/features/build_features.py
+      - src/churn/models/baselines.py
+      - src/churn/models/threshold.py
+      - data/raw/telco_churn.csv
+    params:
+      - configs/config.yaml:
+          - seed
+          - split
+          - features
+          - model
+          - calibration
+          - costs
+          - tracking
+    outs:
+      - models/champion.joblib
+      - data/reference/reference.parquet
+    metrics:
+      - reports/metrics.json:
+          cache: false
+    plots:
+      - docs/figures/reliability_curve.png:
+          cache: false
+      - docs/figures/cost_vs_threshold.png:
+          cache: false

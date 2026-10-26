@@ -1,0 +1,3 @@
+# Patterns DVC should never hash
+*.log
+.ipynb_checkpoints/

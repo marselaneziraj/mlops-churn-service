@@ -1,0 +1,88 @@
+# api + mlflow + postgres.
+#
+# MLflow needs a *backend store* for runs and registered models (postgres here --
+# the file store does not support the model registry) and an *artifact store* for
+# files (a mounted volume here; S3/GCS in a real deployment). The API container
+# only reads the serialised bundle, so it starts even when MLflow is down.
+#
+#   docker compose up -d --build
+#   curl localhost:8000/health   |  MLflow UI: http://localhost:5000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlflow} -d ${POSTGRES_DB:-mlflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "pip install --no-cache-dir psycopg2-binary &&
+             mlflow server
+             --host 0.0.0.0 --port 5000
+             --backend-store-uri postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}
+             --artifacts-destination /mlartifacts
+             --serve-artifacts"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlartifacts:/mlartifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: runtime
+    image: mlops-churn-service:local
+    depends_on:
+      mlflow:
+        condition: service_started
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_PATH: /app/models/champion.joblib
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Mount the trained bundle read-only so a retrain does not need a rebuild.
+      - ./models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    depends_on: [api]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mlartifacts:

@@ -1,0 +1,119 @@
+# ---------------------------------------------------------------------------
+# Single source of truth for the training pipeline. Every script reads this
+# file; nothing is hard-coded. DVC tracks it as the `params` file, so changing
+# a value here marks the affected pipeline stages as out of date.
+# ---------------------------------------------------------------------------
+seed: 42
+
+data:
+  # "telco" downloads the IBM Telco Customer Churn CSV; "synthetic" generates a
+  # seeded, schema-identical dataset so the pipeline runs with no network.
+  source: telco
+  url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  raw_path: data/raw/telco_churn.csv
+  processed_dir: data/processed
+  reference_path: data/reference/reference.parquet
+  synthetic_rows: 7043
+  target: Churn
+  positive_label: "Yes"
+  id_column: customerID
+
+split:
+  # Telco churn has no event timestamp, so we use a stratified holdout and say
+  # so out loud. With a real timestamp, set strategy: time and give time_column.
+  strategy: stratified        # stratified | time
+  time_column: null
+  test_size: 0.2
+  cv_folds: 5
+
+features:
+  numeric:
+    - tenure
+    - MonthlyCharges
+    - TotalCharges
+  categorical:
+    - gender
+    - SeniorCitizen
+    - Partner
+    - Dependents
+    - PhoneService
+    - MultipleLines
+    - InternetService
+    - OnlineSecurity
+    - OnlineBackup
+    - DeviceProtection
+    - TechSupport
+    - StreamingTV
+    - StreamingMovies
+    - Contract
+    - PaperlessBilling
+    - PaymentMethod
+  # Columns that must never reach the model: identifiers, or anything that is
+  # only knowable after the churn decision. The leakage audit asserts this.
+  forbidden:
+    - customerID
+    - Churn
+
+model:
+  name: lightgbm
+  params:
+    # Tuned down from the library defaults: 5.6k training rows with ~45 one-hot
+    # columns overfits quickly. Shallow trees (num_leaves 8), a slow learning rate
+    # and strong L2 keep CV ROC-AUC competitive with the logistic baseline instead
+    # of 2 points behind it.
+    objective: binary
+    n_estimators: 300
+    learning_rate: 0.03
+    num_leaves: 8
+    max_depth: 4
+    min_child_samples: 60
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.7
+    reg_lambda: 5.0
+    n_jobs: 2
+    verbose: -1
+
+calibration:
+  method: isotonic            # isotonic | sigmoid
+  cv: 5
+  n_bins: 10
+  # ensemble=false -> ONE base model refit on all training data plus a single
+  # calibrator fitted on out-of-fold predictions. ensemble=true averages `cv`
+  # separately-calibrated models, which costs `cv` times the inference work:
+  # measured 162 ms vs 26 ms per single-row request here. The statistical
+  # difference is negligible at this sample size; the latency difference is not.
+  ensemble: false
+
+# Cost of each mistake in currency units. A missed churner (FN) costs the
+# lifetime margin we lose; a false alarm (FP) costs the retention offer we
+# waste on someone who was going to stay. FN >> FP is what pushes the decision
+# threshold well below 0.5.
+costs:
+  false_negative: 500.0
+  false_positive: 50.0
+  true_positive: 0.0
+  true_negative: 0.0
+
+tracking:
+  enabled: true
+  tracking_uri: null          # null -> ./mlruns (local file store)
+  experiment: churn
+  registered_model: churn-classifier
+  log_shap: true
+  shap_sample: 2000
+
+serving:
+  model_path: models/champion.joblib
+  model_version: local-dev
+
+monitoring:
+  psi_bins: 10
+  psi_warn: 0.1               # 0.1-0.2 = moderate shift, investigate
+  psi_alert: 0.25             # > 0.25 = significant shift, page someone
+  drift_sample: 2000
+
+paths:
+  models_dir: models
+  reports_dir: reports
+  figures_dir: docs/figures
