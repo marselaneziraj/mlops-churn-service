@@ -9,7 +9,7 @@ description = "End-to-end MLOps reference project: churn model, FastAPI service,
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Marsela Neziraj" }]
 
 dependencies = [
   "pandas>=2.2",
